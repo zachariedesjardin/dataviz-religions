@@ -1,0 +1,321 @@
+---
+title: "Projet Dataviz"
+author: "Zacharie Desjardin"
+date: "29/03/2021"
+output:
+  html_document: default
+  pdf_document: default
+subtitle: World Religions Dataset
+---
+
+```{r library}
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+
+```
+
+# Spécification
+
+*Identification des questions auxquelles vont répondre vos visualisations et les
+sources de données nécessaires. Collection des données sous forme de fichiers plats.*
+
+Liens des datasets :
+1. [Religion] (https://correlatesofwar.org/data-sets/world-religion-data)
+2. [Pays] (https://correlatesofwar.org/data-sets/cow-country-codes)
+
+ 
+
+```{r importation des fichiers}
+setwd("/Documents/projet_religion")
+
+religion <- read.csv("WRP_national.csv", header = TRUE, sep = ",")
+pays <- read.csv("COW country codes.csv", header = TRUE, sep = ",")
+
+religion
+pays
+
+```
+
+Pour cette étude, nous avons deux bases de données. La base "religion" recense le nombre de croyants par religion par année et par pays, entre 1945 et 2010. 
+
+La base "pays" recense les codes des états et les noms associés. Elle nous permettra de faire une fusion et d'obtenir le nom entier des pays pour la base "religion".
+
+Nous allons, au cours de notre étude, étudier cette base de données pour faire ressortir des points intéressants sur l'évolution des religions dans le monde.
+
+
+# Traitement des données
+
+*Le traitement des données sera fait de préférence sous R, dans le notebook. Le
+traitement à l’aide d’autres outils est autorisé s’il est argumenté et documenté dans
+le notebook.*
+
+```{r}
+pays$continent <- cut(pays$CCode,breaks=c(0,95,165,395,626,860,990))
+levels(pays$continent) <- c("Amérique du Nord","Amérique du Sud","Europe","Afrique","Asie","Océanie")
+
+```
+
+```{r fusion}
+pays <- pays %>% rename(state = CCode)
+religion <- merge(pays,religion, by = "state")
+
+```
+
+```{r recodage}
+religion <- religion[,1:43] %>% select(-c(state,StateAbb,sumrelig,name))
+religion <- religion %>% rename(state = StateNme)
+religion$state <- as.factor(religion$state)
+
+
+```
+
+```{r données manquantes}
+sum(is.na(religion))
+religion[is.na(religion)] <- 0
+sum(is.na(religion))
+
+```
+
+Après recodage de certaines modalités, nous n'avons aucune donnée manquante dans notre base de donnée. Attention cependant, certains pays n'ont pas de données avant une certaine date pour des raisons géopolitiques ou d'indépendance, par exemple les chiffres pour le Bénin commencent en 1960. De plus certaines données étant très faibles, ne sont pas indiqués. Par exemple, le nombre de shintoiste en France est indiqué à 0, bien que faible, ce nombre ne devrait pas être à 0.
+
+```{r, tidy}
+religion_1945_2010 <- religion %>%
+  pivot_longer(cols = !c(state, continent, year, pop), names_to = "religion", values_to = "value")
+```
+
+
+# Visualisations
+
+*Créez 4 visualisations en expliquant les choix effectués et en ayant un regard critique
+sur votre travail. Dans la mesure du possible, choisissez ces visualisations afin de
+montrer ce que vous êtes capable de faire. Si cela a du sens, soyez libre de créer
+d’autres visualisations mais ce travail supplémentaire obéira vraisemblablement à la
+loi des rendements décroissants.*
+
+Pour éviter un surplus d'informations, on s'intéressera principalement aux religions comportant le plus de fidèles :
+- Christianisme 
+- Islam
+- Judaisme
+- Hindouisme
+- Boudhisme
+- Syncrétisme
+- Shintoisme
+
+On considerera également l'athéisme comme une religion.
+
+
+## Visualisation 1
+
+```{r, Données 1}
+
+data1 <- religion_1945_2010 %>% 
+         filter(religion %in% c("chrstgen","islmgen","nonrelig","hindgen","budgen","syncgen","shntgen")) %>% 
+         group_by(year,religion) %>% summarize(total = sum(value))
+
+data1
+
+```
+
+```{r, Graphique 1}
+
+p <- ggplot(data = data1,
+       mapping = aes(x = year,
+                     y = total,
+                     group = religion,
+                     color = religion)) +
+  geom_line() + 
+  labs(title = "Évolution des principales religions depuis 1945",
+       subtitle = "Pour les religions comportant le plus de fidèles",
+       x = "Année",
+       y = "Population (en Milliards)",
+       color = "Religion",
+       caption = "Source : correlatesofwar.org") +
+  scale_x_continuous(breaks = seq(from = 2010, to = 1945, by = -10)) +
+  scale_y_continuous(breaks = seq(from = 0, to = 2500000000, by = 500000000), 
+  labels = c("0","0.5 Mrd", "1 Mrd", " 1.5 Mrd", "2 Mrds", " 2.5 Mrds")) + 
+  scale_color_discrete(limits = c("chrstgen","islmgen","nonrelig","hindgen","budgen","syncgen"), 
+                                 labels = c("Christianisme","Islam","Athéisme","Hindouisme","Boudhisme","Syncrétisme"))
+p
+
+```
+
+Ce graphique nous apprends plusieurs informations :
+* Le christianisme a toujours était la religion dominante
+
+
+## Visualisation 2
+
+```{r, Données 2}
+data2 <- religion_1945_2010 %>% 
+              distinct() %>%
+              filter(religion %in% c("chrstgen","islmgen","nonrelig","hindgen","budgen","syncgen") & year == 2010) %>%
+              group_by(continent, religion) %>% 
+              summarise(total = sum(pop),
+                        relig = sum(value),
+                        pourcentage = relig/total)
+
+data2
+
+```
+
+
+```{r, Graphique 2}
+p2 <- ggplot(data = data2,
+       mapping = aes(x = religion, y = pourcentage, fill = religion)) +
+  geom_col() +
+  labs(title = "Le christianisme, religion dominante sur presque tous les continents",
+       subtitle = "Répartition des principales religions par continent en 2010",
+       x = "",
+       y = "",
+       fill = "Religion",
+       caption = "Source : correlatesofwar.org") +
+  facet_wrap(~ continent, ncol = 3) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_x_discrete(limits = c("chrstgen","islmgen","nonrelig","hindgen","budgen","syncgen")) + 
+    scale_fill_brewer(palette = "Spectral", 
+                    limits = c("chrstgen","islmgen","nonrelig","hindgen","budgen","syncgen"), 
+                    labels = c("Christianisme","Islam","Athéisme","Hindouisme","Boudhisme","Syncrétisme")) + 
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank(),
+        axis.ticks = element_blank())
+
+p2
+```
+Ce graphique nous apprends plusieurs informations :
+* Le christianisme est la religion majoritaire sur tous les continents à l'exception de l'Asie
+* L'Asie est un continent où les religions sont très variés, aucune religion n'est vraiment majoritaire (aucune n'a au moins 50 % comme sur les autres continents)
+* Le boudhisme, l'hindouisme et le syncrétisme sont présent presque uniquement en Asie
+* L'Afrique est le seul continent ou l'absence de religion (athéisme) est quasiment absent
+
+
+## Visualisation 3
+
+```{r, Données 3}
+data3 <- religion_1945_2010 %>% distinct() %>% filter(religion == "chrstgen") %>%
+         group_by(year) %>% summarise(total = sum(pop[continent == "Europe"]),
+                                      total_fr = pop[state == "France"],
+                                      chretien = sum(value[continent == "Europe"]),
+                                      chretien_fr = value[state == "France"],
+                                      prct_chretien = chretien/total,
+                                      prct_chretien_fr = chretien_fr/total_fr,
+                                      ecart = prct_chretien_fr - prct_chretien,
+                                      signe = if_else(ecart >= 0, "+", "-"))
+
+
+data3bis <- religion_1945_2010 %>% distinct() %>% 
+         filter(state == "France", 
+                religion %in% c("chrstgen","islmgen","nonrelig","judgen")) %>%
+           group_by(year,religion) %>% summarize(total = sum(value))
+
+data3bis
+data3
+```
+
+```{r, Graphique 3}
+p3 <- ggplot(data = data3,
+            mapping = aes(x = year,
+                          y = ecart, fill = signe)) +
+  geom_col() +
+  geom_hline(yintercept = 0) +
+  labs(title = "Le déclin du christianisme en France face à l'Europe",
+          subtitle = "Écart du pourcentage de chrétien en France par rapport à la moyenne en Europe",
+          x = "Année",
+          y = "",
+          caption = "Source : correlatesofwar.org") +
+  scale_x_continuous(breaks = seq(from = 2010, to = 1945, by = -10)) +
+  guides(fill = FALSE) + 
+  scale_y_continuous(breaks = seq(from = -0.2, to = 0.2, by = 0.05),labels = scales::percent_format(accuracy = 1)) + 
+  geom_text(mapping = aes(label = round(ecart*100,1)),
+            vjust = 1.1,
+            color = "black",
+            alpha = 2)+
+  annotate("text", x = 2008, y = 0.035, label = "Rupture") +
+  annotate("segment", x = 2004, xend = 1998, y = .03, yend = .01,
+           colour = "black", size = 1, alpha = 0.8, arrow = arrow())
+
+p3bis <- ggplot(data = data3bis,
+       mapping = aes(x = year,
+                     y = total,
+                     group = religion,
+                     color = religion)) +
+  geom_line() + 
+  labs(title = "Évolution des principales religions en France depuis 1945",
+       subtitle = "Pour les religions comportant le plus de fidèles",
+       x = "Année",
+       y = "Population (en Millions)",
+       color = "Religion",
+       caption = "Source : correlatesofwar.org") +
+  scale_x_continuous(breaks = seq(from = 2010, to = 1945, by = -10)) +
+  scale_y_continuous(breaks = seq(from = 0, to = 50000000, by = 10000000), 
+  labels = c("0","10 M", "20 M", "30 M", "40 M", "50 M")) + 
+  scale_color_discrete(limits = c("chrstgen","islmgen","nonrelig","judgen"), 
+                                 labels = c("Christianisme","Islam","Athéisme","Judaïsme"))
+p3bis
+p3
+
+```
+
+Nous remarquons que le nombre de chrétien en France est inférieur à la moyenne en Europe depuis l'année 2000. On peut donc penser que le nombre de chrétien en France à diminuer, ou le nombre de chrétien en Europe a augmenté (ou les deux). On voit en effet en faisant un graphique (similaire au 1er graphique mais uniquement pour la France) que le nombre de chrétien en France stagne entre 40 et 45 millions depuis 1960, avec une baisse entre 1985 et 2005.
+
+
+## Visualisation 4
+
+```{r, Données 4}
+data4 <- religion_1945_2010 %>% 
+  distinct() %>%
+  filter(religion %in% c("chrstgen","islmgen","nonrelig","hindgen","budgen","syncgen","shntgen","zoragen","sikhgen","taogen","judgen") & year == 2010) %>%
+  group_by(state) %>% 
+  summarise(religion_maj = religion[value == max(value)]) %>% 
+  rename(name = state)
+
+data4$name <- as.character(data4$name)
+data4$name[data4$name=="Ivory Coast"] <- "Côte d'Ivoire"
+data4$name[data4$name=="Democratic Republic of the Congo"] <- "Dem. Rep. Congo"
+data4$name[data4$name=="Central African Republic"] <- "Central African Rep."
+data4$name[data4$name=="United States of America"] <- "United States"
+
+data4 <- data4 %>% add_row(name = "S. Sudan", religion_maj = "islmgen")
+
+data4$name <- as.factor(data4$name)
+
+data4 <- data4 %>% ungroup() 
+
+#En 2010, le Soudan du sud n'existait pas, la sécession s'est faite en 2011. Actuellement l'islam est majoritaire au Soudan et le christianisme est majoritaire au Soudan du sud. Mais en 2010, avant que le pays soit coupé en 2, c'est l'islam qui dominé.
+
+```
+
+```{r, Données 4 - fusion}
+world <- ne_countries(scale = "medium",
+                      returnclass = "sf")
+
+world4 <- left_join(world, data4, by = "name")
+
+```
+
+```{r, Graphique 4}
+
+p4 <- ggplot(data = world4, mapping = aes(fill = religion_maj)) + 
+  geom_sf() +
+  coord_sf(expand = FALSE) +
+theme_minimal() +
+  labs(title = "Le christianisme, une religion étendue à travers le monde",
+       subtitle = "Religion majoritaire par pays en 2010",
+       fill = "Religion",
+       caption = "Source : correlatesofwar.org") +
+  scale_fill_brewer(palette = "Set3", 
+                    limits = c("chrstgen","islmgen","nonrelig","hindgen","budgen","syncgen","shntgen","judgen"), 
+                    labels = c("Christianisme","Islam","Athéisme","Hindouisme","Boudhisme","Syncrétisme","Shintoïsme","Judaïsme")) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+
+p4
+
+```
+Cette carte nous apprends plusieurs informations :
+* Comme on a pu le voir dans le 1er graphique, le christianisme, et l'islam dans une moindre mesure domine à travers le monde.
+* Comme on a pu le voir dans le 2ème graphique, l'Asie est très variée en terme de religion (chaque religion y est présente).
+* Certaines religions sont présentes dans des petites régions, mais souvent très densement peuplées. C'est le cas de l'hindouisme en Inde et au Népal, du boudhisme en Mongolie et en Asie du Sud-Est,du syncrétisme en Chine, du shintoïsme au Japon, et du judaïsme en Israël.
+* Les pays où l'athéisme est majoritaire sont très rares, ils sont 4 : l'Estonie, la République Tchèque, la Corée du Nord et la Corée du Sud.
